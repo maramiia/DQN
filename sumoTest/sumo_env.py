@@ -1,6 +1,7 @@
-# sumo_env.py
 import os
 import sys
+import random
+import numpy as np
 
 SUMO_HOME = r"C:\Program Files (x86)\Eclipse\Sumo"
 TOOLS = os.path.join(SUMO_HOME, "tools")
@@ -9,44 +10,73 @@ if TOOLS not in sys.path:
 
 import traci
 
+
 class SumoEnv:
-    def __init__(self, sumo_cfg="3x3.sumocfg", gui=False, max_steps=1000):
+    def __init__(self, sumo_cfg="5x5.sumocfg", gui=False, max_steps=1000, sensor_failure_prob=0.05):
         self.sumo_cfg = sumo_cfg
         self.gui = gui
         self.max_steps = max_steps
         self.sumo_binary = "sumo-gui" if gui else "sumo"
         self.step_count = 0
         self.ts_id = None
+        self.sensor_failure_prob = sensor_failure_prob
 
     def start(self):
         if self.gui:
             traci.start([self.sumo_binary, "-c", self.sumo_cfg, "--start", "--quit-on-end"])
         else:
             traci.start([self.sumo_binary, "-c", self.sumo_cfg])
+        
         ts_ids = traci.trafficlight.getIDList()
         if not ts_ids:
             raise RuntimeError("❌ Не найдено светофоров!")
-        self.ts_id = ts_ids[0]
-        print(f"✅ Подключено к SUMO. Управляем светофором: {self.ts_id}")
+        
+        # 🔑 Выбираем светофор с наибольшим числом управляемых полос (обычно центральный)
+        best_ts = ts_ids[0]
+        max_lanes = len(traci.trafficlight.getControlledLanes(ts_ids[0]))
+        for ts_id in ts_ids[1:]:
+            num_lanes = len(traci.trafficlight.getControlledLanes(ts_id))
+            if num_lanes > max_lanes:
+                max_lanes = num_lanes
+                best_ts = ts_id
+
+        self.ts_id = best_ts
+        print(f"✅ Подключено к SUMO. Управляем светофором: {self.ts_id} (полос: {max_lanes})")
+
 
     def get_state(self):
         lanes = traci.trafficlight.getControlledLanes(self.ts_id)
-        return [traci.lane.getLastStepHaltingNumber(lane) for lane in lanes]
+        state = []
+        for lane in lanes:
+            halting = traci.lane.getLastStepHaltingNumber(lane)
+            occupancy = traci.lane.getLastStepVehicleNumber(lane)
+            mean_speed = traci.lane.getLastStepMeanSpeed(lane)
+            # Убрали дублирование — 3 признака на полосу
+            state.extend([halting, occupancy, mean_speed])
+        
+        state = np.array(state, dtype=np.float32)
+
+        if random.random() < self.sensor_failure_prob:
+            state = np.zeros_like(state)
+        
+        return state
 
     def set_phase(self, phase_index):
         traci.trafficlight.setPhase(self.ts_id, phase_index)
 
-    # 🔥 Обязательно называется "step"
-    def step(self, action, duration=10):
+    def step(self, action, duration=5):  # duration=5 вместо 10
         self.set_phase(action)
         total_wait = 0
         for _ in range(duration):
             traci.simulationStep()
             self.step_count += 1
             lanes = traci.trafficlight.getControlledLanes(self.ts_id)
-            total_wait += sum(traci.lane.getLastStepHaltingNumber(lane) for lane in lanes)
+            for lane in lanes:
+                total_wait += traci.lane.getWaitingTime(lane)
+
+        # Упрощённая награда
+        reward = -total_wait / 100.0  # нормализация
         state = self.get_state()
-        reward = -total_wait
         done = self.step_count >= self.max_steps
         return state, reward, done
 
