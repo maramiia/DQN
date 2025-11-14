@@ -1,3 +1,4 @@
+# generate_net.py
 import os
 import subprocess
 import random
