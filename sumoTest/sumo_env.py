@@ -1,4 +1,4 @@
-# sumo_env.py - ИСПРАВЛЕННАЯ ВЕРСИЯ
+# sumo_env.py
 import os
 import sys
 import random
@@ -47,14 +47,15 @@ class SumoEnv:
         state = []
         for lane in lanes:
             halting = traci.lane.getLastStepHaltingNumber(lane)
-            occupancy = traci.lane.getLastStepVehicleNumber(lane)
-            mean_speed = max(traci.lane.getLastStepMeanSpeed(lane), 0.1)  # Избегаем нулевой скорости
-            # Нормализуем значения
-            norm_halting = halting / 20.0  # предполагаем макс 20 машин в очереди
-            norm_occupancy = occupancy / 30.0  # предполагаем макс 30 машин
-            norm_speed = mean_speed / 13.89  # нормализуем к макс скорости (~50 км/ч)
+            vehicles = traci.lane.getLastStepVehicleNumber(lane)
+            mean_speed = max(traci.lane.getLastStepMeanSpeed(lane), 0.1)
             
-            state.extend([norm_halting, norm_occupancy, norm_speed])
+            # Простая нормализация
+            norm_halting = min(halting / 10.0, 1.0)
+            norm_vehicles = min(vehicles / 15.0, 1.0)
+            norm_speed = mean_speed / 13.89
+            
+            state.extend([norm_halting, norm_vehicles, norm_speed])
         
         state = np.array(state, dtype=np.float32)
 
@@ -66,38 +67,42 @@ class SumoEnv:
     def set_phase(self, phase_index):
         traci.trafficlight.setPhase(self.ts_id, phase_index)
 
-    def step(self, action, duration=10):  # Увеличим duration для стабильности
+    def step(self, action, duration=10):
         self.set_phase(action)
-        total_wait = 0
-        vehicles_passed = 0
+        
+        total_waiting = 0
+        total_stopped = 0
         
         for _ in range(duration):
             traci.simulationStep()
             self.step_count += 1
             
-            # Собираем более разнообразные метрики
+            # Считаем метрики
             lanes = traci.trafficlight.getControlledLanes(self.ts_id)
             for lane in lanes:
-                total_wait += traci.lane.getWaitingTime(lane)
-                vehicles_passed += traci.lane.getLastStepVehicleNumber(lane)
+                total_waiting += traci.lane.getWaitingTime(lane)
+                total_stopped += traci.lane.getLastStepHaltingNumber(lane)
 
-        # УЛУЧШЕННАЯ ФУНКЦИЯ НАГРАДЫ
-        reward = self.calculate_reward(total_wait, vehicles_passed, duration)
+        # ИСПРАВЛЕННАЯ ФУНКЦИЯ НАГРАДЫ - ДЕЛАЕМ ЕЁ ПОНЯТНОЙ
+        reward = self.calculate_reward(total_waiting, total_stopped)
         state = self.get_state()
         done = self.step_count >= self.max_steps
         
         return state, reward, done
 
-    def calculate_reward(self, total_wait, vehicles_passed, duration):
-        """Улучшенная функция награды"""
-        # Штраф за время ожидания (нормализованный)
-        wait_penalty = -total_wait / (100.0 * duration)
+    def calculate_reward(self, total_waiting, total_stopped):
+        """Упрощенная и эффективная функция награды"""
+        # Основной штраф - за время ожидания (нормализованный)
+        wait_penalty = -total_waiting / 1000.0
         
-        # Награда за пропускную способность
-        throughput_reward = vehicles_passed / (10.0 * duration)
+        # Дополнительный штраф за стоящие автомобили
+        stop_penalty = -total_stopped * 0.1
         
-        # Комбинированная награда
-        reward = wait_penalty + throughput_reward
+        # Общая награда (должна быть в разумных пределах: -10 до 10)
+        reward = wait_penalty + stop_penalty
+        
+        # Ограничиваем награду
+        reward = max(min(reward, 10.0), -10.0)
         
         return reward
 

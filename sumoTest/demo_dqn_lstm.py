@@ -1,7 +1,8 @@
-# demo_dqn.py
+# demo_dqn_lstm_simple.py
 import os
 import sys
 import torch
+from collections import deque
 
 SUMO_HOME = r"C:\Program Files (x86)\Eclipse\Sumo"
 TOOLS = os.path.join(SUMO_HOME, "tools")
@@ -9,11 +10,11 @@ if TOOLS not in sys.path:
     sys.path.append(TOOLS)
 
 from sumo_env import SumoEnv
-from dqn_agent import DQN
+from dqn_agent import LSTMDQN
 import traci
 
 def main():
-    env = SumoEnv(sumo_cfg="test.sumocfg", gui=True, max_steps=1800, sensor_failure_prob=0.05)  # Укоротили для демо
+    env = SumoEnv(sumo_cfg="test.sumocfg", gui=True, max_steps=1800, sensor_failure_prob=0.05)
     env.start()
 
     try:
@@ -22,43 +23,53 @@ def main():
         tls_logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(env.ts_id)
         action_size = len(tls_logic[0].phases)
 
-        print(f"🚦 Демо DQN: состояние={state_size}, действий={action_size}")
+        print(f"🚦 Демо LSTM-DQN: состояние={state_size}, действий={action_size}")
 
         device = torch.device("cpu")
-        model = DQN(state_size, action_size).to(device)
+        model = LSTMDQN(state_size, action_size).to(device)
         
-        # Пробуем загрузить разные версии модели
-        model_files = ["dqn_simple_best.pth", "dqn_simple_final.pth", "dqn_best.pth", "dqn_final.pth", "dqn_sumo.pth"]
+        # Только LSTM модели
+        model_files = ["lstmdqn_best.pth", "lstmdqn_final.pth"]
         model_loaded = False
         
         for model_file in model_files:
             try:
                 model.load_state_dict(torch.load(model_file, map_location=device))
-                print(f"✅ Загружена модель: {model_file}")
+                print(f"✅ Загружена LSTM-DQN модель: {model_file}")
                 model_loaded = True
                 break
-            except:
+            except Exception as e:
+                print(f"❌ Не удалось загрузить {model_file}")
                 continue
         
         if not model_loaded:
-            print("❌ Не найдена обученная модель! Сначала обучите:")
-            print("   python train_dqn_simple.py")
+            print("❌ Не найдена LSTM-DQN модель! Сначала обучите:")
+            print("   python train_dqn_lstm.py")
+            print("📝 Используйте обычный DQN:")
+            print("   python demo_dqn.py")
             return
         
         model.eval()
 
+        # Буфер для последовательности
+        sequence_buffer = deque(maxlen=5)
         total_wait = 0
         step = 0
         
         while True:
-            state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
-            with torch.no_grad():
-                q_values = model(state_tensor)
-                action = q_values.argmax().item()
+            sequence_buffer.append(state)
+            
+            if len(sequence_buffer) < 5:
+                action = step % action_size
+            else:
+                sequence = list(sequence_buffer)
+                state_tensor = torch.FloatTensor([sequence]).to(device)
+                with torch.no_grad():
+                    q_values, _ = model(state_tensor)
+                    action = q_values.argmax().item()
 
             next_state, reward, done = env.step(action, duration=10)
             
-            # Считаем реальное время ожидания
             lanes = traci.trafficlight.getControlledLanes(env.ts_id)
             step_wait = sum(traci.lane.getWaitingTime(lane) for lane in lanes)
             total_wait += step_wait
@@ -66,16 +77,15 @@ def main():
             state = next_state
             step += 1
             
-            if step % 50 == 0:  # Реже выводим информацию
+            if step % 50 == 0:
                 print(f"⏱️ Шаг {step}: фаза={action}, ожидание={step_wait:.1f} сек")
                 
             if done:
                 break
 
         avg_wait = total_wait / step if step > 0 else 0
-        print(f"\n✅ Демо завершено!")
+        print(f"\n✅ Демо LSTM-DQN завершено!")
         print(f"📊 Среднее время ожидания: {avg_wait:.2f} сек")
-        print(f"🔢 Всего шагов: {step}")
 
     finally:
         env.close()
