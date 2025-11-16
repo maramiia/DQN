@@ -2,6 +2,7 @@
 import os
 import sys
 import torch
+import numpy as np
 
 SUMO_HOME = r"C:\Program Files (x86)\Eclipse\Sumo"
 TOOLS = os.path.join(SUMO_HOME, "tools")
@@ -9,11 +10,11 @@ if TOOLS not in sys.path:
     sys.path.append(TOOLS)
 
 from sumo_env import SumoEnv
-from dqn_agent import DQN
+from dqn_agent import LSTMDQN  # ← ИМПОРТИРУЕМ LSTM-версию
 import traci
 
 def main():
-    env = SumoEnv(sumo_cfg="test.sumocfg", gui=True, max_steps=1800, sensor_failure_prob=0.05)  # Укоротили для демо
+    env = SumoEnv(sumo_cfg="test.sumocfg", gui=True, max_steps=7200, sensor_failure_prob=0.05)
     env.start()
 
     try:
@@ -22,60 +23,45 @@ def main():
         tls_logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(env.ts_id)
         action_size = len(tls_logic[0].phases)
 
-        print(f"🚦 Демо DQN: состояние={state_size}, действий={action_size}")
-
         device = torch.device("cpu")
-        model = DQN(state_size, action_size).to(device)
-        
-        # Пробуем загрузить разные версии модели
-        model_files = ["dqn_simple_best.pth", "dqn_simple_final.pth", "dqn_best.pth", "dqn_final.pth", "dqn_sumo.pth"]
-        model_loaded = False
-        
-        for model_file in model_files:
-            try:
-                model.load_state_dict(torch.load(model_file, map_location=device))
-                print(f"✅ Загружена модель: {model_file}")
-                model_loaded = True
-                break
-            except:
-                continue
-        
-        if not model_loaded:
-            print("❌ Не найдена обученная модель! Сначала обучите:")
-            print("   python train_dqn_simple.py")
-            return
-        
+        model = LSTMDQN(state_size, action_size).to(device)
+        model.load_state_dict(torch.load("dqn_sumo.pth", map_location=device))
         model.eval()
 
+        # Для подсчёта метрики — как в baseline
         total_wait = 0
-        step = 0
-        
-        while True:
-            state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
-            with torch.no_grad():
-                q_values = model(state_tensor)
-                action = q_values.argmax().item()
+        simulation_step = 0
+        next_change = 0
+        state_history = []  # ← ИСТОРИЯ СОСТОЯНИЙ
 
-            next_state, reward, done = env.step(action, duration=10)
-            
-            # Считаем реальное время ожидания
-            lanes = traci.trafficlight.getControlledLanes(env.ts_id)
-            step_wait = sum(traci.lane.getWaitingTime(lane) for lane in lanes)
-            total_wait += step_wait
-            
-            state = next_state
-            step += 1
-            
-            if step % 50 == 0:  # Реже выводим информацию
-                print(f"⏱️ Шаг {step}: фаза={action}, ожидание={step_wait:.1f} сек")
+        while simulation_step < 7200:
+            if simulation_step >= next_change:
+                state_history.append(state)
+                # Формируем последовательность длины 5
+                if len(state_history) < 5:
+                    padded = [np.zeros(state_size) for _ in range(5 - len(state_history))] + state_history
+                else:
+                    padded = state_history[-5:]
                 
-            if done:
-                break
+                state_tensor = torch.FloatTensor([padded]).to(device)
+                with torch.no_grad():
+                    q_values = model(state_tensor)
+                    action = q_values.argmax().item()
+                
+                next_change = simulation_step + 5
 
-        avg_wait = total_wait / step if step > 0 else 0
-        print(f"\n✅ Демо завершено!")
-        print(f"📊 Среднее время ожидания: {avg_wait:.2f} сек")
-        print(f"🔢 Всего шагов: {step}")
+            traci.trafficlight.setPhase(env.ts_id, action)
+            traci.simulationStep()
+            simulation_step += 1
+
+            wait_now = sum(traci.lane.getWaitingTime(lane) for lane in traci.trafficlight.getControlledLanes(env.ts_id))
+            total_wait += wait_now
+
+            # Обновляем состояние каждую секунду
+            state = env.get_state()
+
+        avg_wait = total_wait / 7200
+        print(f"✅ Среднее время ожидания (LSTM-DQN, реалистичный сценарий): {avg_wait:.2f} сек")
 
     finally:
         env.close()
