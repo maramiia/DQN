@@ -1,8 +1,9 @@
-# generate_net.py
 import os
 import subprocess
 import random
 from xml.etree.ElementTree import Element, SubElement, ElementTree
+import sumolib
+
 
 def generate_net():
     print("1. Генерация расширенной сети с входами/выходами...")
@@ -15,7 +16,7 @@ def generate_net():
         "--grid.y-length", "350",
         "--default.lanenumber", "3",
         "--default.speed", "13.89",  # ~50 км/ч
-        "--grid.attach-length", "200",  # ← КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: добавляет входы/выходы
+        "--grid.attach-length", "200",  # ← добавляет входы/выходы
         "-o", "5x5.net.xml"
     ], check=True)
 
@@ -32,27 +33,34 @@ def generate_net():
     os.replace("5x5_with_tls.net.xml", "5x5.net.xml")
     print("✅ Сеть 5×5 со светофорами и входами/выходами готова")
 
+
 def generate_routes(train=True):
-    import sumolib
     net = sumolib.net.readNet("5x5.net.xml")
     
     # 🔑 ФИКСИРУЕМ СЛУЧАЙНОСТЬ ТОЛЬКО ДЛЯ ОБУЧЕНИЯ
     if train:
-        random.seed(42)  # ← ВСЕГДА ОДИНАКОВЫЙ ТРАФИК
+        random.seed(42)
     else:
-        random.seed()    # ← ИЛИ можно вообще не вызывать — будет системный случай
+        random.seed()  # системная случайность
 
+    # Получаем все рёбра (дороги)
     all_edges = [e for e in net.getEdges() if not e.getID().startswith(":")]
     edge_ids = [e.getID() for e in all_edges]
 
+    # Внешние рёбра — те, что не содержат '_', например: "left0", "top1"
     external = [eid for eid in edge_ids if "_" not in eid]
     destinations = edge_ids
 
+    # Создаём корень XML
     root = Element("routes")
     SubElement(root, "vType", id="car", accel="2.6", decel="4.5", sigma="0.5", length="5", maxSpeed="15")
 
+    # Генерация маршрутов (src → dst)
     routes = []
-    for src in external or edge_ids:
+    routes_by_src = {}  # для балансировки
+
+    for src in external:
+        routes_by_src[src] = []
         for dst in destinations:
             if src == dst:
                 continue
@@ -60,35 +68,78 @@ def generate_routes(train=True):
                 path = net.getOptimalPath(net.getEdge(src), net.getEdge(dst))
                 if path and path[0]:
                     edges_str = " ".join(e.getID() for e in path[0])
-                    routes.append((f"route_{src}_{dst}", edges_str))
-            except:
+                    rid = f"route_{src}_{dst}"
+                    routes.append((rid, edges_str))
+                    routes_by_src[src].append((rid, edges_str))
+            except Exception:
                 continue
 
     if not routes:
         raise RuntimeError("❌ Нет маршрутов!")
 
-    # Сначала <route>
+    # Записываем <route> в XML
     for rid, edges_str in routes:
         SubElement(root, "route", id=rid, edges=edges_str)
 
-    # Потом <vehicle>
-    num_vehicles = 150 if train else 200  # чуть больше в тесте
+    # === ГЕНЕРАЦИЯ МАШИН С ГАРАНТИРОВАННОЙ СОРТИРОВКОЙ И БАЛАНСИРОВКОЙ ===
+    vehicles = []
+    num_vehicles = 150 if train else 200
+
+    srcs = list(routes_by_src.keys())
+    if not srcs:
+        srcs = [r[0].split('_')[1] for r in routes]  # fallback
+
+    # Round-robin по источникам для баланса
     for i in range(num_vehicles):
-        rid, _ = random.choice(routes)
-        depart_time = i * (20 if train else random.randint(10, 30))  # в тесте — случайный интервал
-        SubElement(root, "vehicle", id=f"v_{i}", type="car", route=rid, depart=str(depart_time))
+        src = srcs[i % len(srcs)]  # ← БАЛАНСИРОВКА: циклически перебираем источники
+        if src in routes_by_src and routes_by_src[src]:
+            rid, _ = random.choice(routes_by_src[src])
+        else:
+            rid, _ = random.choice(routes)
+        
+        if i == 0:
+            depart_time = 0
+        else:
+            interval = 20 if train else random.randint(10, 30)
+            depart_time = vehicles[-1][0] + interval
+        
+        vehicles.append((depart_time, f"v_{i}", rid))
+
 
     # Пики — только в тесте!
     if not train:
-        peak_times = list(range(25200, 32400, random.randint(6, 12))) + list(range(61200, 68400, random.randint(6, 12)))
+        # Утро: 7:00–9:00 (25200–32400 сек), вечер: 17:00–19:00 (61200–68400 сек)
+        peak_times = []
+        # Утро
+        t = 25200
+        while t < 32400:
+            peak_times.append(t)
+            t += random.randint(6, 12)
+        # Вечер
+        t = 61200
+        while t < 68400:
+            peak_times.append(t)
+            t += random.randint(6, 12)
+        
         for t in peak_times:
-            rid, _ = random.choice(routes)
-            SubElement(root, "vehicle", id=f"peak_{t}", type="car", route=rid, depart=str(t))
+            src = random.choice(srcs)
+            if src in routes_by_src and routes_by_src[src]:
+                rid, _ = random.choice(routes_by_src[src])
+            else:
+                rid, _ = random.choice(routes)
+            vehicles.append((t, f"peak_{t}", rid))
+
+    # Сортируем по времени (на всякий случай)
+    vehicles.sort(key=lambda x: x[0])
+
+    # Создаём <vehicle> в правильном порядке
+    for depart_time, vid, rid in vehicles:
+        SubElement(root, "vehicle", id=vid, type="car", route=rid, depart=str(depart_time))
 
     filename = "train.rou.xml" if train else "test.rou.xml"
     tree = ElementTree(root)
     tree.write(filename, encoding="utf-8", xml_declaration=True)
-    print(f"✅ {filename} создан")
+    print(f"✅ {filename} создан (машин: {len(vehicles)})")
 
 
 def generate_sumocfg(name="train"):
@@ -113,11 +164,12 @@ def generate_sumocfg(name="train"):
     print(f"✅ {filename} создан")
 
 
-    
 if __name__ == "__main__":
+    # Удаляем старые файлы
     for f in ["5x5.net.xml", "train.rou.xml", "test.rou.xml", "train.sumocfg", "test.sumocfg"]:
         if os.path.exists(f):
             os.remove(f)
+            print(f"🗑 Удалён {f}")
 
     generate_net()  # создаёт 5x5.net.xml
 
@@ -129,5 +181,5 @@ if __name__ == "__main__":
     generate_sumocfg("test")
 
     print("\n🎉 Готово! Используйте:")
-    print(" - train.sumocfg для ОБУЧЕНИЯ")
-    print(" - test.sumocfg для ТЕСТИРОВАНИЯ с неопределённостью")
+    print(" - train.sumocfg для ОБУЧЕНИЯ (150 машин, сбалансировано, сортировано)")
+    print(" - test.sumocfg для ТЕСТИРОВАНИЯ (200+ машин + пики, сортировано)")
