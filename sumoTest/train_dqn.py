@@ -23,42 +23,31 @@ def main():
         env = SumoEnv(sumo_cfg="train.sumocfg", gui=False, max_steps=3600, sensor_failure_prob=0.0)
         env.start()
 
-try:
-    state = env.get_state()
-    if agent is None:
-        state_size = len(state)
-        tls_logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(env.ts_id)
-        action_size = len(tls_logic[0].phases)
-        # Используем LSTM-агент
-        agent = LSTMDQNAgent(state_size=state_size, action_size=action_size, sequence_length=5)
+        try:
+            state = env.get_state()
+            if agent is None:
+                state_size = len(state)
+                tls_logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(env.ts_id)
+                action_size = len(tls_logic[0].phases)
+                agent = DQNAgent(state_size=state_size, action_size=action_size)
 
-    state_history = []  # ← ИСТОРИЯ СОСТОЯНИЙ
-    total_reward = 0
+            total_reward = 0
+            while True:
+                action = agent.act(state)
+                # 🔑 duration=5
+                next_state, reward, done = env.step(action, duration=5)
+                agent.remember(state, action, reward, next_state, done)
+                state = next_state
+                total_reward += reward
+                if done:
+                    break
 
-    while True:
-        state_history.append(state)
-        action = agent.act(state_history)
-        
-        next_state, reward, done = env.step(action, duration=5)
-        
-        # Сохраняем переходы в памяти (только когда есть полная последовательность)
-        if len(state_history) >= agent.sequence_length:
-            current_seq = state_history[-agent.sequence_length:]
-            next_seq = state_history[-agent.sequence_length+1:] + [next_state]
-            agent.remember(current_seq, action, reward, next_seq, done)
-        
-        state = next_state
-        total_reward += reward
-        if done:
-            break
+            agent.replay()
+            if e % 10 == 0:
+                agent.update_target()
 
-    # Обучение на накопленных данных
-    agent.replay()
-    if e % 10 == 0:
-        agent.update_target()
-
-    scores.append(total_reward)
-    print(f"Episode {e+1}/{episodes}, Total Reward: {total_reward:.2f}, Epsilon: {agent.epsilon:.3f}")
+            scores.append(total_reward)
+            print(f"Episode {e+1}/{episodes}, Total Reward: {total_reward:.2f}, Epsilon: {agent.epsilon:.3f}")
 
         finally:
             env.close()
