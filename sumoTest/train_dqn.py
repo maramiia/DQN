@@ -1,4 +1,4 @@
-# train_dqn.py - ИСПРАВЛЕННАЯ ВЕРСИЯ
+# train_dqn.py
 import os
 import sys
 import numpy as np
@@ -14,77 +14,57 @@ from dqn_agent import DQNAgent
 import traci
 
 def main():
-    episodes = 50  # Увеличим количество эпизодов
+    episodes = 100
     scores = []
-    best_score = -float('inf')
-    
-    print("🚦 Начало обучения DQN-LSTM...")
-    
+    agent = None
+
     for e in range(episodes):
-        env = SumoEnv(sumo_cfg="train.sumocfg", gui=False, max_steps=1800, sensor_failure_prob=0.0)  # Уменьшим шаги
+        # 🔑 ИСПОЛЬЗУЕМ ТРЕНИРОВОЧНЫЙ СЦЕНАРИЙ
+        env = SumoEnv(sumo_cfg="train.sumocfg", gui=False, max_steps=3600, sensor_failure_prob=0.0)
         env.start()
 
-        try:
-            state = env.get_state()
-            if e == 0:  # Инициализация только в первом эпизоде
-                state_size = len(state)
-                tls_logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(env.ts_id)
-                action_size = len(tls_logic[0].phases)
-                agent = DQNAgent(state_size=state_size, action_size=action_size, sequence_length=5)
-                print(f"🤖 DQN-LSTM: состояние {state_size}, действий {action_size}")
-            else:
-                agent.reset_sequence()  # Сброс последовательности
+try:
+    state = env.get_state()
+    if agent is None:
+        state_size = len(state)
+        tls_logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(env.ts_id)
+        action_size = len(tls_logic[0].phases)
+        # Используем LSTM-агент
+        agent = LSTMDQNAgent(state_size=state_size, action_size=action_size, sequence_length=5)
 
-            total_reward = 0
-            step_count = 0
-            
-            while True:
-                action = agent.act(state)
-                next_state, reward, done = env.step(action, duration=10)  # Увеличим duration
-                
-                # Сохраняем в память
-                agent.remember_sequence(state, action, reward, next_state, done)
-                
-                state = next_state
-                total_reward += reward
-                step_count += 1
-                
-                # Обучение каждые 4 шага
-                if step_count % 4 == 0:
-                    agent.replay()
-                
-                if done:
-                    break
+    state_history = []  # ← ИСТОРИЯ СОСТОЯНИЙ
+    total_reward = 0
 
-            # Обновление целевой сети
-            if e % 20 == 0:
-                agent.update_target()
+    while True:
+        state_history.append(state)
+        action = agent.act(state_history)
+        
+        next_state, reward, done = env.step(action, duration=5)
+        
+        # Сохраняем переходы в памяти (только когда есть полная последовательность)
+        if len(state_history) >= agent.sequence_length:
+            current_seq = state_history[-agent.sequence_length:]
+            next_seq = state_history[-agent.sequence_length+1:] + [next_state]
+            agent.remember(current_seq, action, reward, next_seq, done)
+        
+        state = next_state
+        total_reward += reward
+        if done:
+            break
 
-            scores.append(total_reward)
-            
-            # Сохранение лучшей модели
-            if total_reward > best_score:
-                best_score = total_reward
-                torch.save(agent.q_network.state_dict(), "dqn_lstm_best.pth")
-                print(f"💾 Сохранена лучшая модель с наградой: {best_score:.2f}")
+    # Обучение на накопленных данных
+    agent.replay()
+    if e % 10 == 0:
+        agent.update_target()
 
-            avg_score = np.mean(scores[-10:]) if len(scores) >= 10 else total_reward
-            
-            print(f"Эпизод {e+1}/{episodes}, Награда: {total_reward:.2f}, "
-                  f"Средняя (10): {avg_score:.2f}, Epsilon: {agent.epsilon:.3f}")
-                
-        except Exception as ex:
-            print(f"❌ Ошибка в эпизоде {e}: {ex}")
-            import traceback
-            traceback.print_exc()
+    scores.append(total_reward)
+    print(f"Episode {e+1}/{episodes}, Total Reward: {total_reward:.2f}, Epsilon: {agent.epsilon:.3f}")
+
         finally:
             env.close()
 
-    # Финальное сохранение
-    torch.save(agent.q_network.state_dict(), "dqn_lstm_final.pth")
-    print("✅ Обучение завершено!")
-    print(f"🎯 Лучшая награда: {best_score:.2f}")
-    print(f"📊 Финальная средняя награда: {np.mean(scores[-20:]):.2f}")
+    torch.save(agent.q_network.state_dict(), "dqn_sumo.pth")
+    print("✅ Модель сохранена")
 
 if __name__ == "__main__":
     main()
