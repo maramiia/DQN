@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2025-11-17 18:49:19 by Eclipse SUMO netconvert Version 1.24.0
+<!-- generated on 2025-11-17 20:16:51 by Eclipse SUMO netconvert Version 1.24.0
 <netconvertConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/netconvertConfiguration.xsd">
 
     <input>
@@ -293,10 +293,10 @@
     </edge>
 
     <tlLogic id="A0" type="static" programID="0" offset="0">
-        <phase duration="42" state="GGGGggrrrrrrGGGGggrrrrrr"/>
-        <phase duration="3"  state="yyyyyyrrrrrryyyyyyrrrrrr"/>
-        <phase duration="42" state="rrrrrrGGGGggrrrrrrGGGGgg"/>
-        <phase duration="3"  state="rrrrrryyyyyyrrrrrryyyyyy"/>
+        <phase duration="45" state="GGGGggrrrrrrGGGGggrrrrrr"/>
+        <phase duration="5"  state="yyyyyyrrrrrryyyyyyrrrrrr"/>
+        <phase duration="13" state="rrrrrrGGGGggrrrrrrGGGGgg"/>
+        <phase duration="5"  state="rrrrrryyyyyyrrrrrryyyyyy"/>
     </tlLogic>
     <tlLogic id="B0" type="static" programID="0" offset="0">
         <phase duration="42" state="GGGGggrrrrrrGGGGggrrrrrr"/>
