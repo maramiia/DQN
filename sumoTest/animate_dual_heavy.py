@@ -3,6 +3,7 @@ import os
 import sys
 import torch
 import numpy as np
+import time
 
 SUMO_HOME = r"C:\Program Files (x86)\Eclipse\Sumo"
 TOOLS = os.path.join(SUMO_HOME, "tools")
@@ -10,14 +11,13 @@ if TOOLS not in sys.path:
     sys.path.append(TOOLS)
 
 import traci
-from sumo_env import SumoEnv
 from drqn_agent import DRQN
 
 class DualHeavyVisualizer:
     def __init__(self):
         self.gui = True
         self.sumo_cfg = "dual_heavy.sumocfg"
-        self.max_steps = 3600  # 1 час
+        self.max_steps = 2000  # ← 2000 шагов
         self.sequence_length = 5
         self.drqn_history = None
         self.drqn_model = None
@@ -51,55 +51,55 @@ class DualHeavyVisualizer:
         if len(ts_ids) < 2:
             raise RuntimeError("Нужно минимум 2 светофора!")
 
-        # Предполагаем: ts_ids[0] — левый (Baseline), ts_ids[1] — правый (DRQN)
-        baseline_ts = ts_ids[0]
-        drqn_ts = ts_ids[1]
+        baseline_ts = ts_ids[0]  # A0
+        drqn_ts = ts_ids[1]      # B0
         print(f"🚦 Baseline TS: {baseline_ts}, DRQN TS: {drqn_ts}")
 
-        # Получаем фазы для Baseline
+        # Baseline фазы
         tls_logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(baseline_ts)
         fixed_durations = [p.duration for p in tls_logic[0].phases]
         phase_idx = 0
         time_in_phase = 0
 
-        # Инициализация DRQN
+        # DRQN инициализация
         state_drqn = self.get_state(drqn_ts)
         state_size = len(state_drqn)
         action_size = len(traci.trafficlight.getCompleteRedYellowGreenDefinition(drqn_ts)[0].phases)
         self.load_drqn(state_size, action_size)
 
         try:
-            for step in range(self.max_steps):
-                # === Baseline: фиксированный цикл ===
+            for step in range(self.max_steps):  # ← 2000 шагов
+                # Baseline
                 if time_in_phase >= fixed_durations[phase_idx]:
                     phase_idx = (phase_idx + 1) % len(fixed_durations)
                     time_in_phase = 0
                 traci.trafficlight.setPhase(baseline_ts, phase_idx)
                 time_in_phase += 1
 
-                # === DRQN: адаптивное управление ===
-                new_state = self.get_state(drqn_ts)
-                self.drqn_history = self.drqn_history[1:] + [new_state]
-                seq = np.array(self.drqn_history)
-                state_tensor = torch.FloatTensor(seq).unsqueeze(0)
-                with torch.no_grad():
-                    q_vals, _ = self.drqn_model(state_tensor)
-                    action = q_vals.argmax().item()
-                traci.trafficlight.setPhase(drqn_ts, action)
+                # DRQN (раз в 5 сек для большей отзывчивости)
+                if step % 5 == 0:
+                    new_state = self.get_state(drqn_ts)
+                    self.drqn_history = self.drqn_history[1:] + [new_state]
+                    seq = np.array(self.drqn_history)
+                    state_tensor = torch.FloatTensor(seq).unsqueeze(0)
+                    with torch.no_grad():
+                        q_vals, _ = self.drqn_model(state_tensor)
+                        action = q_vals.argmax().item()
+                    traci.trafficlight.setPhase(drqn_ts, action)
 
-                # Шаг симуляции
                 traci.simulationStep()
 
-                # Лог каждые 500 шагов
+                if self.gui:
+                    time.sleep(0.1)  # плавная анимация
+
                 if (step + 1) % 500 == 0:
                     bl_wait = sum(traci.lane.getWaitingTime(l) for l in traci.trafficlight.getControlledLanes(baseline_ts))
                     drqn_wait = sum(traci.lane.getWaitingTime(l) for l in traci.trafficlight.getControlledLanes(drqn_ts))
-                    print(f"⏱️ {step+1} сек | Baseline очередь: {bl_wait:.0f} | DRQN очередь: {drqn_wait:.0f}")
+                    print(f"⏱️ {step+1} сек | Baseline: {bl_wait:.0f} | DRQN: {drqn_wait:.0f}")
 
         finally:
             traci.close()
             print("🔚 Симуляция завершена")
-
 
 if __name__ == "__main__":
     viz = DualHeavyVisualizer()
