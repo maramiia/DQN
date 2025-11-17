@@ -12,7 +12,7 @@ if TOOLS not in sys.path:
 import traci
 from sumo_env import SumoEnv
 
-def analyze_traffic_density(sumo_cfg="test.sumocfg"):
+def analyze_traffic_density(sumo_cfg="heavy_test.sumocfg"):
     """Анализирует плотность трафика в симуляции"""
     env = SumoEnv(sumo_cfg=sumo_cfg, gui=False, max_steps=7200)
     env.start()
@@ -104,7 +104,7 @@ def analyze_traffic_density(sumo_cfg="test.sumocfg"):
 
 def quick_traffic_check():
     """Быстрая проверка плотности трафика"""
-    env = SumoEnv(sumo_cfg="test.sumocfg", gui=False, max_steps=100)
+    env = SumoEnv(sumo_cfg="heavy_test.sumocfg", gui=False, max_steps=100)
     env.start()
     
     try:

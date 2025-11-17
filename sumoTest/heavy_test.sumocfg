@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <input>
+        <net-file value="5x5.net.xml"/>
+        <route-files value="heavy_test.rou.xml"/>
+    </input>
+    <time>
+        <begin value="0"/>
+        <end value="7200"/> <!-- 2 часа -->
+    </time>
+    <processing>
+        <time-to-teleport value="-1"/> <!-- машины не исчезают, а ждут -->
+    </processing>
+</configuration>
