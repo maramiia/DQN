@@ -1,4 +1,3 @@
-# test_baseline.py
 import os
 import sys
 SUMO_HOME = r"C:\Program Files (x86)\Eclipse\Sumo"

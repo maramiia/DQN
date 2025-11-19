@@ -1,11 +1,9 @@
-# compare_and_plot.py
 import os
 import sys
 import csv
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Настройка шрифтов для публикаций
 plt.rcParams.update({
     "font.size": 12,
     "font.family": "serif",
@@ -22,7 +20,6 @@ TOOLS = os.path.join(SUMO_HOME, "tools")
 if TOOLS not in sys.path:
     sys.path.append(TOOLS)
 
-# --- Baseline ---
 from sumo_env import SumoEnv
 import traci
 
@@ -52,7 +49,6 @@ def run_baseline():
     finally:
         env.close()
 
-# --- DQN ---
 import torch
 from dqn_agent import DQN
 
@@ -85,7 +81,6 @@ def run_dqn():
     finally:
         env.close()
 
-# --- DRQN ---
 from sumo_history_env import SumoHistoryEnv
 from drqn_agent import DRQN
 
@@ -125,18 +120,15 @@ def run_drqn():
     finally:
         env.close()
 
-# --- Основной запуск ---
 if __name__ == "__main__":
-    print("🚀 Запуск сравнения методов на test.sumocfg...\n")
+    print("Запуск сравнения методов на test.sumocfg...\n")
 
-    # Запуск методов
     baseline = run_baseline()
     dqn = run_dqn()
     drqn = run_drqn()
 
-    # Вывод таблицы
     print("="*50)
-    print("📊 СРЕДНЕЕ ВРЕМЯ ОЖИДАНИЯ (секунды)")
+    print("СРЕДНЕЕ ВРЕМЯ ОЖИДАНИЯ (секунды)")
     print("="*50)
     print(f"{'Метод':<15} {'Время ожидания':<15} {'Улучшение':<15}")
     print("-"*50)
@@ -144,17 +136,15 @@ if __name__ == "__main__":
     print(f"{'DQN':<15} {dqn:<15.2f} {((baseline - dqn) / baseline * 100):<14.1f}%")
     print(f"{'DRQN':<15} {drqn:<15.2f} {((baseline - drqn) / baseline * 100):<14.1f}%")
     print("="*50)
-    print(f"\n🎯 DRQN лучше DQN на {((dqn - drqn) / dqn * 100):.1f}%")
+    print(f"\n DRQN лучше DQN на {((dqn - drqn) / dqn * 100):.1f}%")
 
-    # Сохранение в CSV
-    with open("comparison_results.csv", "w", newline="", encoding="utf-8") as f:
+    with open("compare_light.csv", "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["Method", "Avg_Waiting_Time_sec", "Improvement_vs_Baseline_%"])
         writer.writerow(["Baseline", baseline, 0])
         writer.writerow(["DQN", dqn, (baseline - dqn) / baseline * 100])
         writer.writerow(["DRQN", drqn, (baseline - drqn) / baseline * 100])
 
-    # Построение графика
     methods = ["Baseline", "DQN", "DRQN"]
     avg_wait = [baseline, dqn, drqn]
     colors = ["#ff9999", "#66b3ff", "#99ff99"]
@@ -162,7 +152,6 @@ if __name__ == "__main__":
     plt.figure(figsize=(8, 5))
     bars = plt.bar(methods, avg_wait, color=colors, edgecolor='black', linewidth=0.8)
 
-    # Подписи значений на столбцах
     for bar, value in zip(bars, avg_wait):
         plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02, 
                  f'{value:.2f}', ha='center', va='bottom', fontweight='bold')
@@ -173,9 +162,8 @@ if __name__ == "__main__":
     plt.grid(axis='y', linestyle='--', alpha=0.7)
     plt.tight_layout()
 
-    # Сохранение и отображение
-    plt.savefig("comparison_plot.png", dpi=300, bbox_inches='tight')
-    print("\n✅ График сохранён как 'comparison_plot.png'")
-    print("✅ Результаты сохранены в 'comparison_results.csv'")
+    plt.savefig("compare_light.png", dpi=300, bbox_inches='tight')
+    print("\n График сохранён как 'compare_light.png'")
+    print("Результаты сохранены в 'compare_light.csv'")
     
     plt.show()

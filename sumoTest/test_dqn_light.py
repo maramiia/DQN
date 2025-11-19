@@ -1,4 +1,3 @@
-# test_dqn.py
 import os
 import sys
 import torch

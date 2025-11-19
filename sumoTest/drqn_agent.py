@@ -1,4 +1,3 @@
-# drqn_agent.py (улучшенная версия)
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -86,7 +85,6 @@ class DRQNAgent:
         loss = nn.MSELoss()(current_q, target_q)
         self.optimizer.zero_grad()
         loss.backward()
-        # 🔑 Градиентный клиппинг — ключ к стабильности!
         torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), max_norm=1.0)
         self.optimizer.step()
 

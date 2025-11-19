@@ -1,4 +1,3 @@
-# test_drqn.py
 import os
 import sys
 import torch

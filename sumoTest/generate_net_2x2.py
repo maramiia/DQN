@@ -1,4 +1,3 @@
-# generate_dual_heavy.py
 import os
 import subprocess
 import random
@@ -13,7 +12,7 @@ if TOOLS not in sys.path:
 try:
     import sumolib
 except ImportError:
-    print("❌ sumolib не найден")
+    print("sumolib не найден")
     sys.exit(1)
 
 def generate_net():
@@ -23,7 +22,7 @@ def generate_net():
         "--grid", "--grid.x-number", "2", "--grid.y-number", "1",
         "--grid.x-length", "400", "--grid.y-length", "300",
         "--default.lanenumber", "3", "--default.speed", "13.89",
-        "--grid.attach-length", "250",  # чуть длиннее для лучшего трафика
+        "--grid.attach-length", "250",
         "--output", "dual_crossings.net.xml"
     ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -34,7 +33,7 @@ def generate_net():
         "--tls.guess", "--tls.guess.threshold", "1",
         "--no-turnarounds", "true"
     ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    print("✅ Сеть готова")
+    print("Сеть готова")
 
 def generate_routes():
     print("2. Генерация маршрутов с ВЕРТИКАЛЬНЫМ трафиком...")
@@ -44,11 +43,9 @@ def generate_routes():
 
     vehicles = []
 
-    # Гарантированно симметричная генерация
     for zone, node_id in [("baseline", "A0"), ("drqn", "B0")]:
         inputs = []
         outputs = []
-        # Собираем ВСЕ внешние рёбра для узла
         for edge in net.getEdges():
             if ":" in edge.getID():
                 continue
@@ -61,7 +58,6 @@ def generate_routes():
 
         print(f"  Зона '{zone}': входы={inputs}, выходы={outputs}")
 
-        # Генерация маршрутов
         routes = []
         for src in inputs:
             for dst in outputs:
@@ -77,9 +73,8 @@ def generate_routes():
                 except:
                     continue
 
-        # РОВНО 500 машин на зону, распределённых равномерно
         for i in range(500):
-            t = random.randint(0, 1999)  # до 2000 сек
+            t = random.randint(0, 1999)
             if routes:
                 rid = random.choice(routes)
                 vehicles.append((t, f"v_{zone}_{i}", rid))
@@ -89,7 +84,7 @@ def generate_routes():
         SubElement(root, "vehicle", id=vid, type="car", route=rid, depart=str(t))
 
     ElementTree(root).write("dual_heavy.rou.xml", encoding="utf-8", xml_declaration=True)
-    print(f"✅ Маршруты готовы: {len(vehicles)} машин (2500 на зону)")
+    print(f"Маршруты готовы: {len(vehicles)} машин (2500 на зону)")
 
 def generate_sumocfg():
     with open("dual_heavy.sumocfg", "w", encoding="utf-8") as f:
@@ -107,7 +102,7 @@ def generate_sumocfg():
         <time-to-teleport value="-1"/>
     </processing>
 </configuration>""")
-    print("✅ Конфиг создан (2000 сек)")
+    print("Конфиг создан (2000 сек)")
 
 if __name__ == "__main__":
     for f in ["dual_crossings.net.xml", "dual_heavy.rou.xml", "dual_heavy.sumocfg"]:
@@ -117,4 +112,4 @@ if __name__ == "__main__":
     generate_net()
     generate_routes()
     generate_sumocfg()
-    print("\n🎉 Готово!")
+    print("\nГотово!")

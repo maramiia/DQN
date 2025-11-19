@@ -1,4 +1,3 @@
-# train_drqn.py (улучшенная версия)
 import os
 import sys
 import numpy as np
@@ -23,7 +22,7 @@ def main():
         env = SumoHistoryEnv(
             sumo_cfg="train.sumocfg",
             gui=False,
-            max_steps=3600,  # 1 час симуляции = 3600 шагов агента
+            max_steps=3600,
             sensor_failure_prob=0.0,
             sequence_length=sequence_length
         )
@@ -38,29 +37,26 @@ def main():
                     state_size=state_size,
                     action_size=action_size,
                     sequence_length=sequence_length,
-                    epsilon_decay=0.98  # ← важно!
+                    epsilon_decay=0.98 
                 )
-                print(f"📊 State size: {state_size}, Action size: {action_size}")
+                print(f"State size: {state_size}, Action size: {action_size}")
 
             total_reward = 0
             step_count = 0
             while True:
                 action = agent.act(state_seq)
-                # 🔑 Увеличена длительность фазы до 10 сек
                 next_state_seq, reward, done = env.step_with_history(action, duration=10)
                 agent.remember(state_seq, action, reward, next_state_seq, done)
                 state_seq = next_state_seq
                 total_reward += reward
                 step_count += 1
 
-                # 🔑 Обучаемся КАЖДЫЕ 20 ШАГОВ
                 if step_count % 20 == 0:
                     agent.replay()
 
                 if done:
                     break
 
-            # Дополнительное обучение в конце эпизода
             for _ in range(3):
                 agent.replay()
 
@@ -73,12 +69,12 @@ def main():
                   f"Avg(5): {avg_last5:.2f}, Epsilon: {agent.epsilon:.3f}")
 
         except Exception as ex:
-            print(f"❌ Ошибка в эпизоде {e+1}: {ex}")
+            print(f"Ошибка в эпизоде {e+1}: {ex}")
         finally:
             env.close()
 
     torch.save(agent.q_network.state_dict(), "drqn_sumo.pth")
-    print("✅ DRQN модель сохранена как 'drqn_sumo.pth'")
+    print("DRQN модель сохранена как 'drqn_sumo.pth'")
 
 if __name__ == "__main__":
     main()

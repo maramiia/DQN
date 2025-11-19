@@ -1,4 +1,3 @@
-# sumo_env.py
 import os
 import sys
 import random
@@ -30,9 +29,8 @@ class SumoEnv:
         
         ts_ids = traci.trafficlight.getIDList()
         if not ts_ids:
-            raise RuntimeError("❌ Не найдено светофоров!")
+            raise RuntimeError("Не найдено светофоров!")
         
-        # 🔑 Выбираем светофор с наибольшим числом управляемых полос (обычно центральный)
         best_ts = ts_ids[0]
         max_lanes = len(traci.trafficlight.getControlledLanes(ts_ids[0]))
         for ts_id in ts_ids[1:]:
@@ -42,7 +40,7 @@ class SumoEnv:
                 best_ts = ts_id
 
         self.ts_id = best_ts
-        print(f"✅ Подключено к SUMO. Управляем светофором: {self.ts_id} (полос: {max_lanes})")
+        print(f"Подключено к SUMO. Управляем светофором: {self.ts_id} (полос: {max_lanes})")
 
 
     def get_state(self):
@@ -52,7 +50,6 @@ class SumoEnv:
             halting = traci.lane.getLastStepHaltingNumber(lane)
             occupancy = traci.lane.getLastStepVehicleNumber(lane)
             mean_speed = traci.lane.getLastStepMeanSpeed(lane)
-            # Убрали дублирование — 3 признака на полосу
             state.extend([halting, occupancy, mean_speed])
         
         state = np.array(state, dtype=np.float32)
@@ -65,7 +62,7 @@ class SumoEnv:
     def set_phase(self, phase_index):
         traci.trafficlight.setPhase(self.ts_id, phase_index)
 
-    def step(self, action, duration=5):  # duration=5 вместо 10
+    def step(self, action, duration=5):
         self.set_phase(action)
         total_wait = 0
         for _ in range(duration):
@@ -75,8 +72,7 @@ class SumoEnv:
             for lane in lanes:
                 total_wait += traci.lane.getWaitingTime(lane)
 
-        # Упрощённая награда
-        reward = -total_wait / 100.0  # нормализация
+        reward = -total_wait / 100.0 
         state = self.get_state()
         done = self.step_count >= self.max_steps
         return state, reward, done

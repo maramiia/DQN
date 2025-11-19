@@ -1,4 +1,3 @@
-# train_dqn.py
 import os
 import sys
 import numpy as np
@@ -19,7 +18,6 @@ def main():
     agent = None
 
     for e in range(episodes):
-        # 🔑 ИСПОЛЬЗУЕМ ТРЕНИРОВОЧНЫЙ СЦЕНАРИЙ
         env = SumoEnv(sumo_cfg="train.sumocfg", gui=False, max_steps=3600, sensor_failure_prob=0.0)
         env.start()
 
@@ -34,7 +32,6 @@ def main():
             total_reward = 0
             while True:
                 action = agent.act(state)
-                # 🔑 duration=5
                 next_state, reward, done = env.step(action, duration=5)
                 agent.remember(state, action, reward, next_state, done)
                 state = next_state
@@ -53,7 +50,7 @@ def main():
             env.close()
 
     torch.save(agent.q_network.state_dict(), "dqn_sumo.pth")
-    print("✅ Модель сохранена")
+    print("Модель сохранена")
 
 if __name__ == "__main__":
     main()

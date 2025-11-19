@@ -15,8 +15,8 @@ def generate_net():
         "--grid.x-length", "400",
         "--grid.y-length", "350",
         "--default.lanenumber", "3",
-        "--default.speed", "13.89",  # ~50 км/ч
-        "--grid.attach-length", "200",  # ← добавляет входы/выходы
+        "--default.speed", "13.89",
+        "--grid.attach-length", "200",
         "-o", "5x5.net.xml"
     ], check=True)
 
@@ -31,33 +31,28 @@ def generate_net():
     ], check=True)
 
     os.replace("5x5_with_tls.net.xml", "5x5.net.xml")
-    print("✅ Сеть 5×5 со светофорами и входами/выходами готова")
+    print("Сеть 5×5 со светофорами и входами/выходами готова")
 
 
 def generate_routes(train=True):
     net = sumolib.net.readNet("5x5.net.xml")
     
-    # 🔑 ФИКСИРУЕМ СЛУЧАЙНОСТЬ ТОЛЬКО ДЛЯ ОБУЧЕНИЯ
     if train:
         random.seed(42)
     else:
-        random.seed()  # системная случайность
+        random.seed() 
 
-    # Получаем все рёбра (дороги)
     all_edges = [e for e in net.getEdges() if not e.getID().startswith(":")]
     edge_ids = [e.getID() for e in all_edges]
 
-    # Внешние рёбра — те, что не содержат '_', например: "left0", "top1"
     external = [eid for eid in edge_ids if "_" not in eid]
     destinations = edge_ids
 
-    # Создаём корень XML
     root = Element("routes")
     SubElement(root, "vType", id="car", accel="2.6", decel="4.5", sigma="0.5", length="5", maxSpeed="15")
 
-    # Генерация маршрутов (src → dst)
     routes = []
-    routes_by_src = {}  # для балансировки
+    routes_by_src = {}
 
     for src in external:
         routes_by_src[src] = []
@@ -75,23 +70,20 @@ def generate_routes(train=True):
                 continue
 
     if not routes:
-        raise RuntimeError("❌ Нет маршрутов!")
+        raise RuntimeError("Нет маршрутов!")
 
-    # Записываем <route> в XML
     for rid, edges_str in routes:
         SubElement(root, "route", id=rid, edges=edges_str)
 
-    # === ГЕНЕРАЦИЯ МАШИН С ГАРАНТИРОВАННОЙ СОРТИРОВКОЙ И БАЛАНСИРОВКОЙ ===
     vehicles = []
     num_vehicles = 150 if train else 200
 
     srcs = list(routes_by_src.keys())
     if not srcs:
-        srcs = [r[0].split('_')[1] for r in routes]  # fallback
+        srcs = [r[0].split('_')[1] for r in routes]
 
-    # Round-robin по источникам для баланса
     for i in range(num_vehicles):
-        src = srcs[i % len(srcs)]  # ← БАЛАНСИРОВКА: циклически перебираем источники
+        src = srcs[i % len(srcs)] 
         if src in routes_by_src and routes_by_src[src]:
             rid, _ = random.choice(routes_by_src[src])
         else:
@@ -106,16 +98,12 @@ def generate_routes(train=True):
         vehicles.append((depart_time, f"v_{i}", rid))
 
 
-    # Пики — только в тесте!
     if not train:
-        # Утро: 7:00–9:00 (25200–32400 сек), вечер: 17:00–19:00 (61200–68400 сек)
         peak_times = []
-        # Утро
         t = 25200
         while t < 32400:
             peak_times.append(t)
             t += random.randint(6, 12)
-        # Вечер
         t = 61200
         while t < 68400:
             peak_times.append(t)
@@ -129,17 +117,15 @@ def generate_routes(train=True):
                 rid, _ = random.choice(routes)
             vehicles.append((t, f"peak_{t}", rid))
 
-    # Сортируем по времени (на всякий случай)
     vehicles.sort(key=lambda x: x[0])
 
-    # Создаём <vehicle> в правильном порядке
     for depart_time, vid, rid in vehicles:
         SubElement(root, "vehicle", id=vid, type="car", route=rid, depart=str(depart_time))
 
     filename = "train.rou.xml" if train else "test.rou.xml"
     tree = ElementTree(root)
     tree.write(filename, encoding="utf-8", xml_declaration=True)
-    print(f"✅ {filename} создан (машин: {len(vehicles)})")
+    print(f"{filename} создан (машин: {len(vehicles)})")
 
 
 def generate_sumocfg(name="train"):
@@ -161,25 +147,23 @@ def generate_sumocfg(name="train"):
         <time-to-teleport value="-1"/>
     </processing>
 </configuration>""")
-    print(f"✅ {filename} создан")
+    print(f"{filename} создан")
 
 
 if __name__ == "__main__":
-    # Удаляем старые файлы
     for f in ["5x5.net.xml", "train.rou.xml", "test.rou.xml", "train.sumocfg", "test.sumocfg"]:
         if os.path.exists(f):
             os.remove(f)
             print(f"🗑 Удалён {f}")
 
-    generate_net()  # создаёт 5x5.net.xml
+    generate_net()
 
-    # Генерируем ДВА сценария
     generate_routes(train=True)
     generate_sumocfg("train")
 
     generate_routes(train=False)
     generate_sumocfg("test")
 
-    print("\n🎉 Готово! Используйте:")
+    print("\nГотово! Используйте:")
     print(" - train.sumocfg для ОБУЧЕНИЯ (150 машин, сбалансировано, сортировано)")
     print(" - test.sumocfg для ТЕСТИРОВАНИЯ (200+ машин + пики, сортировано)")
